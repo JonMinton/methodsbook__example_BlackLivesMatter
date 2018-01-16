@@ -309,8 +309,14 @@ dta %>%
       TRUE ~ 'other'
     )
   )  %>% 
-  mutate(population = as.numeric(population)) %>% 
-  filter(!is.na(population)) %>% 
+  mutate(
+    population = as.numeric(population),
+    deaths = as.numeric(deaths)
+    ) %>% 
+  filter(!is.na(population)) %>%
+  group_by(ethnicity, gender, age, icd_code) %>% 
+  summarise(deaths = sum(deaths), population = sum(population)) %>% 
+  ungroup() %>% 
   select(ethnicity, gender, age, icd_code, deaths, population) -> dta_tidy
 
 
@@ -515,6 +521,78 @@ dta_tidy %>%
 # to die at any age than WHN females. 
 
 
-# We now
+# We now might want to know more about the different ways that people die at different ages,
+# and then how these differ between ages and ethnicities
+
+dta_tidy %>% 
+  group_by(ethnicity, gender, age) %>% 
+  mutate(total_deaths = sum(deaths)) %>% 
+  mutate(prop_deaths_by_code = deaths / total_deaths) %>% 
+  ungroup() %>% 
+  arrange(icd_code, ethnicity, gender, age) %>%
+  ggplot(aes(x = age, y = prop_deaths_by_code, fill = icd_code)) + 
+  facet_grid(ethnicity ~ gender) + 
+  geom_area()
+
+
+# This is really weird - the visualisations work for two ethnic groups, but not others
+
+#Are the data only available at 5 year age groups for the two groups affected?
+
+dta_tidy %>% 
+  filter(ethnicity == "hispanic") %>% 
+  xtabs(~ age + icd_code + gender, .)
+
+#Instead this seems to be a different issue, multiple records for hispanic for a single age and ICD, rather than one
+
+# I've now gone back to the earlier code and aggregated death and pop counts by ethnicity, which seems to fix this
+
+
+
+# The visualisation is somewhat psychedelic, but there are too many ICD codes to make visual sense of.
+
+# We may instead want to focus on one particular type of ICD class: deaths from external causes 
+
+icd_code_lookup
+
+# We can see from this lookup that this code is 'V01-Y89'.
+# Let's now reduce the number of categories to just two 
+
+dta_tidy %>% 
+  mutate(is_external = ifelse(icd_code == "V01-Y89", "External causes", "Other causes")) %>%
+  group_by(ethnicity, gender, age, is_external) %>% 
+  summarise(deaths = sum(deaths), population = population[1]) %>% 
+  ungroup() %>% 
+  group_by(ethnicity, gender, age) %>% 
+  mutate(total_deaths = sum(deaths)) %>% 
+  mutate(prop_deaths_by_code = deaths / total_deaths) %>% 
+  ungroup() %>%
+  ggplot(aes(x = age, y = prop_deaths_by_code, fill = is_external)) + 
+  facet_grid(ethnicity ~ gender) + 
+  geom_area() +
+  scale_fill_manual("Cause of death", values = c("red", "grey"))
+
+
+# Let's now plot just the external death proportions on one plot for each gender
+
+dta_tidy %>% 
+  mutate(is_external = ifelse(icd_code == "V01-Y89", "External causes", "Other causes")) %>%
+  group_by(ethnicity, gender, age, is_external) %>% 
+  summarise(deaths = sum(deaths), population = population[1]) %>% 
+  ungroup() %>% 
+  group_by(ethnicity, gender, age) %>% 
+  mutate(total_deaths = sum(deaths)) %>% 
+  mutate(prop_deaths_by_code = deaths / total_deaths) %>% 
+  ungroup() %>% 
+  filter(is_external == "External causes") %>% 
+  rename(prop_deaths_external = prop_deaths_by_code) %>% 
+  ggplot(aes(x = age, y = prop_deaths_external, colour = ethnicity, linetype = ethnicity)) + 
+  geom_line() +
+  facet_wrap(~ gender)
+
+
+# This shows that either a similar or smaller proportion of all deaths tend to occur in 
+# BNH due to external causes than amongst other groups, with the exception of deaths during 
+# childhood. 
 
 
