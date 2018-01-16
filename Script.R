@@ -45,6 +45,7 @@ pacman::p_load(
 
 # For 1. Organize Table Layout
 # Select group results by 
+# i) Year
 # i) Hispanic Origin
 # ii) Race
 # iii) Gender
@@ -279,7 +280,8 @@ dta %>%
 # ... is distinct from .. 
  # ... is an elipses containing the two column names we want to evaluate
 # !!! is different from !!
-# We use !!! when we are working from 
+# We use !! when we are working with a single expression we want to evaluate (effectively turn from a label to a command)
+# We use !!! when we are working with a group of expressions which we want to evaluate. 
 
 
 
@@ -294,5 +296,225 @@ dta %>%
     hispanic = `Hispanic Origin`,
     race = Race,
     gender = Gender,
-    age = `Single-year`
-         )
+    age = `Single-Year Ages Code`,
+    icd_code = `ICD Chapter Code`,
+    deaths = Deaths, 
+    population = Population
+  ) %T>% print %>% 
+  mutate(
+    ethnicity = case_when(
+      hispanic == "Hispanic or Latino" ~ 'hispanic',
+      hispanic != "Hispanic or Latino" & race == 'White' ~ 'white_nh',
+      hispanic != "Hispanic or Latino" & race == 'Black or African American' ~ 'black_nh',
+      TRUE ~ 'other'
+    )
+  )  %>% 
+  mutate(population = as.numeric(population)) %>% 
+  filter(!is.na(population)) %>% 
+  select(ethnicity, gender, age, icd_code, deaths, population) -> dta_tidy
+
+
+
+# Analysis ----------------------------------------------------------------
+
+
+# With the data in this format, we can start to explore some of the ethnic differences by cause of death
+
+dta_tidy %>% 
+  group_by(ethnicity, gender) %>% 
+  summarise(
+    deaths = sum(deaths),
+    population = sum(population)
+  ) %>% 
+  ungroup() %>% 
+  mutate(death_rate = 100000 * deaths / population) %T>% print() %>% 
+  select(ethnicity, gender, death_rate) %>% 
+  mutate(relative_rate = death_rate / death_rate[ethnicity == 'white_nh' & gender == 'Female']) %>% 
+  arrange(relative_rate) %T>% print %>% (
+    function(..){
+      .. %>% 
+        unite(eth_gender, ethnicity, gender, remove = F) %>%
+        mutate(eth_gender = forcats::fct_reorder(eth_gender, relative_rate)) %>% 
+        ggplot(
+          aes(x = eth_gender, y = relative_rate, colour = gender, fill = ethnicity)
+               ) + 
+        geom_bar(stat = "identity", size = 2,  alpha = 0.6) +
+        geom_hline(yintercept = 1) + 
+        coord_flip() 
+      }
+  )
+
+# From this it appears that both BMH males and WNH males have similar mortality rates compared with 
+# WNH females (the reference category). It also appears that H males and H females have much lower 
+# mortality rates. 
+
+# However, in these analyses we are not doing something very important to do in analyses: 
+# controlling for differences in population structure. Younger people are, of course, usually 
+# much less likely to die than older people, and so if one population tends to be much younger than 
+# another, a smaller death rate might be expected through population structure alone.
+# This might be particularly the case with Hispanic population groups. 
+# But let's try to use the data to get a sense of how much of an issue this might be 
+
+
+dta_tidy %>% 
+  group_by(ethnicity, gender, age) %>% 
+  summarise(
+    population = sum(population)
+  ) %>% 
+  ungroup() %T>% (
+    function(..){
+      .. %>% 
+        ggplot(aes(x = age, ymax = population)) + 
+        facet_grid(ethnicity ~ gender) + 
+        geom_ribbon(ymin = 0) +
+        coord_flip() -> p
+      
+      print(p)
+      browser("Population structure")
+      NULL
+    }
+  ) %>% 
+  group_by(ethnicity, gender) %>% 
+  mutate(prop_of_pop = population / sum(population)) %T>% (
+    function(..){
+      .. %>% 
+        ggplot(aes(x = age, ymax = prop_of_pop)) + 
+        facet_grid(ethnicity ~ gender) + 
+        geom_ribbon(ymin = 0) +
+        coord_flip() -> p
+      
+      print(p)
+      browser("Proportionate Population structure")
+      NULL
+    }
+  ) %>% 
+  mutate(agepop = age * population) %>% 
+  summarise(mean_age = sum(agepop) / sum(population)) %>% 
+  arrange(mean_age)
+
+# We can see from this that there are some clear differences in the age structures 
+# of the different populations. The mean age for hispanics is under 40, whereas for 
+# White non-Hispanics it's around 40
+
+# We might now want to reformulate the questions:
+# compared with others of the same age and gender, what is the relative risk of dying 
+# for different ethnic groups?
+
+# Let's try to do this with age in single years, and see how far we get 
+
+dta_tidy %>% 
+  group_by(ethnicity, gender, age) %>% 
+  summarise(
+    deaths = sum(deaths),
+    population = sum(population)
+  ) %>% 
+  ungroup() %>% 
+  mutate(death_rate = 100000 * deaths / population) %>% (
+    function(..){
+      .. %>% 
+        ggplot(aes(x = age, ymax = death_rate)) + 
+        facet_grid(ethnicity ~ gender) + 
+        geom_ribbon(ymin = 0) +
+        coord_flip() -> p
+      
+      print(p)
+
+      .. %>% 
+        mutate(log_death_rate = log10(death_rate / 1000000)) %>% 
+        ggplot(aes(x=age, y =log_death_rate)) + 
+        facet_grid(ethnicity ~ gender) + 
+        geom_point() -> p
+      print(p)
+      
+      .. %>% 
+        mutate(log_death_rate = log10(death_rate / 1000000)) %>% 
+        ggplot(aes(x = age, y = log_death_rate, shape = ethnicity, colour = ethnicity)) + 
+        facet_wrap(~gender) + 
+        geom_point() -> p
+      print(p)
+      
+      NULL
+    }
+  )
+
+
+# These figures, especially the last, give us much to ponder.
+# It appears that BNH mortality rates are higher than those of WNH of the 
+# same gender and age for almost all ages, but that there are some important 
+# distinct features.
+# In infancy, BNH mortality rates are an outlier compared with those of other ethnic groups
+# Mortality rates for all ethnicities tend to increase more with the onset of 
+# early adulthood for males than for females, but appear to do so even more for BNH than 
+# WNH. 
+
+# Now let's look at the relative differences by age for BNH compared with WNH
+
+dta_tidy %>% 
+  group_by(ethnicity, gender, age) %>% 
+  summarise(
+    deaths = sum(deaths),
+    population = sum(population)
+  ) %>% 
+  ungroup() %>% 
+  mutate(death_rate = deaths / population) %>% 
+  filter(ethnicity %in% c("black_nh", "white_nh")) %>%
+  select(ethnicity, gender, age, death_rate) %>% 
+  spread(ethnicity, death_rate) %>% 
+  mutate(relative_mortality = black_nh / white_nh) %>% 
+  group_by(gender) %>% mutate(avg_relative_mortality = mean(relative_mortality)) %>% ungroup() %>% 
+  select(gender, age, relative_mortality, avg_relative_mortality) %T>% ( 
+    function(..){
+      .. %>% 
+        group_by(gender) %>% 
+        select(gender, avg_relative_mortality) %>% 
+        distinct() %>% 
+        print()
+    }
+  ) %>% 
+  ggplot(aes(x = age, ymax = relative_mortality, fill = gender)) +
+  geom_ribbon(ymin = 1, alpha = 0.5) + 
+  geom_hline(aes(yintercept = avg_relative_mortality, group = gender, color = gender))
+
+
+# This shows that BNH tend to have substantially higher mortality risks at almost all ages,
+# with the exception of females in their late teens. The highest relative hazards are 
+# infancy, and the lowest at the oldest ages. 
+# The average hazard at all ages is 1.66 for females, and 1.74 for males. 
+
+# Let's now return to the crude relative rates we looked at earlier, and this time 
+# produce something similar that controls better for differences in age distributions 
+dta_tidy %>% 
+  group_by(ethnicity, gender, age) %>% 
+  summarise(deaths = sum(deaths), population = sum(population)) %>% 
+  mutate(death_rate = deaths / population) %>% 
+  ungroup() %>% 
+  mutate(relative_death_rate = death_rate / death_rate[ethnicity == 'white_nh'& gender == 'Female']) %>% 
+  group_by(ethnicity, gender) %>% 
+  summarise(avg_rel_death_rate = mean(relative_death_rate)) %>% 
+  arrange(avg_rel_death_rate)  %T>% print %>% 
+  ungroup() %>% (
+    function(..){
+      .. %>% 
+        unite(eth_gender, ethnicity, gender, remove = F) %>%
+        mutate(eth_gender = forcats::fct_reorder(eth_gender, avg_rel_death_rate)) %>% 
+        ggplot(
+          aes(x = eth_gender, y = avg_rel_death_rate, colour = gender, fill = ethnicity)
+        ) + 
+        geom_bar(stat = "identity", size = 2,  alpha = 0.6) +
+        geom_hline(yintercept = 1) + 
+        coord_flip() 
+    }
+  )
+
+# This reveals some very important patterns about the relative risk of dying at each age
+# Compared with WNH females, hispanic females have around a 15% lower risk of dying each year
+# With the exception of BHF females, females tend to have lower risks than males.
+# WNH males have a 77% higher risk on average of dying each year than WNH females. 
+# Hispanic males have a 65% higher risk each year, slightly lower than WNH males.
+# BNH males have exceptionally high mortality risks, being around 210% more likely 
+# to die at any age than WHN females. 
+
+
+# We now
+
+
