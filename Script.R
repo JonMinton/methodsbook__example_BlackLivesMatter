@@ -376,7 +376,6 @@ dta_tidy %>%
         coord_flip() -> p
       
       print(p)
-      browser("Population structure")
       NULL
     }
   ) %>% 
@@ -390,7 +389,6 @@ dta_tidy %>%
         coord_flip() -> p
       
       print(p)
-      browser("Proportionate Population structure")
       NULL
     }
   ) %>% 
@@ -594,5 +592,62 @@ dta_tidy %>%
 # This shows that either a similar or smaller proportion of all deaths tend to occur in 
 # BNH due to external causes than amongst other groups, with the exception of deaths during 
 # childhood. 
+
+
+# For each ethnic/gender combination, I want to know what the average relative risk of death from each 
+# cause by chapter compared with WNH females 
+
+dta_tidy %>% 
+  mutate(death_risk = deaths / population) %>%
+  select(ethnicity, gender, age, icd_code, death_risk) %>%
+  left_join(
+    dta_tidy %>% 
+      filter(ethnicity == "white_nh", gender == "Female") %>% 
+      mutate(death_risk = deaths / population) %>% 
+      select(age, icd_code, reference_risk = death_risk)
+  ) %>% 
+  mutate(relative_risk = death_risk / reference_risk) %T>% 
+  ( # Figure - all in one
+    function(..) {
+      .. %>% 
+        ggplot(aes(x = age, y = relative_risk, colour = ethnicity, linetype = gender)) +
+        geom_line() + 
+        facet_wrap(~icd_code) +
+        scale_y_log10(breaks = c(0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 50, 100)) -> p
+      
+      print(p)
+    }
+  ) %>% 
+  (
+    function(..) {
+      
+      make_figure <- function(dta){
+        dta %>% 
+          ggplot(aes(x = age, y = relative_risk, colour = ethnicity, linetype = gender)) +
+          geom_line() + 
+          ggtitle(dta$icd_name[1]) + 
+          scale_y_log10(breaks = c(0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 50, 100)) -> p
+          
+        print(p)
+        ggsave(paste0("figures/", dta$icd_name[1], ".png"))
+        NULL
+      }
+      
+      .. %>% 
+        inner_join(
+          icd_code_lookup %>% 
+            select(icd_code = `ICD Chapter Code`, icd_name = `ICD Chapter`)
+        ) %>% 
+        select(ethnicity, gender, icd_name, icd_code, age, relative_risk) %>% 
+        group_by(icd_code) %>% 
+        nest() %>% 
+        walk(make_figure(data))
+            
+    }
+  )
+
+
+
+
 
 
