@@ -647,7 +647,109 @@ dta_tidy %>%
   )
 
 
+# There's simply a huge amount of information here, and getting substantive implications of this will require some 
+# unpacking. However some of the particular ways in which there seems to be a Black non-Hispanic disadvantage are: 
+
+# Young adulthood: Infectious and parasitic diseases
+# Young adulthood: Blood and immune system
+# Young adulthood: Musculoskeletal system. Especially females. 
+# Young adulthood: Nervous system
+# Young adulthood: Respiratory system
+# Young adulthood: External
+# Middle age: Endocrine system, nutritional and metabolic diseases (more senescent in other groups)
+# Middle age: neoplasms (female)
+# Older working age: Circulatory system (especially males)
+# Older working age: genitourinary system 
+# Older working age and post retirment: Diseases of skin (not gendered)
+# Older working age: Mental & behavioural disorders (mainly males)
+# Retirement: neoplasms (male)
+# All ages: Not otherwise classified (especially males. Gendered in all ethnicities)
+# Digestive system: higher for hispanics than BNH. Heavily gendered
+
+
+# The aim now should be to try to produce a meaningful summary representation of this 
 
 
 
 
+dta_tidy %>% 
+  mutate(death_risk = deaths / population) %>%
+  select(ethnicity, gender, age, icd_code, death_risk) %>%
+  left_join(
+    dta_tidy %>% 
+      filter(ethnicity == "white_nh", gender == "Female") %>% 
+      mutate(death_risk = deaths / population) %>% 
+      select(age, icd_code, reference_risk = death_risk)
+  ) %>% 
+  mutate(relative_risk = death_risk / reference_risk) %>% 
+  mutate(log_rel = log(relative_risk)) %>% 
+  group_by(ethnicity, gender, icd_code) %>% 
+  summarise(log_rel = mean(log_rel, na.rm = T)) %>% 
+  ungroup() %>% 
+  mutate(avg_rel = exp(log_rel)) %>% 
+  left_join(
+    dta_tidy %>% 
+        select(ethnicity, gender, icd_code, deaths, population) %>% 
+        group_by(ethnicity, gender, icd_code) %>% 
+        summarise(deaths = sum(deaths), population = sum(population)) %>% 
+        mutate(prevalence = deaths / population) %>% 
+        ungroup() %>% 
+        select(ethnicity, gender, icd_code, prevalence),
+    by = c("ethnicity", "gender", "icd_code")
+  ) %T>% print(.) %>% 
+  ggplot(aes(x = prevalence, y = avg_rel, colour = ethnicity)) +
+    geom_text(aes(label = icd_code)) +
+    facet_wrap(~gender) +
+    scale_x_log10() + scale_y_log10()
+    
+
+# This is somewhat too complex.
+
+# I'm going to look at highcharter 
+
+pacman::p_load(
+  highcharter
+)
+
+
+
+dta_tidy %>% 
+  mutate(death_risk = deaths / population) %>%
+  select(ethnicity, gender, age, icd_code, death_risk) %>%
+  left_join(
+    dta_tidy %>% 
+      filter(ethnicity == "white_nh", gender == "Female") %>% 
+      mutate(death_risk = deaths / population) %>% 
+      select(age, icd_code, reference_risk = death_risk)
+  ) %>% 
+  mutate(relative_risk = death_risk / reference_risk) %>% 
+  mutate(log_rel = log(relative_risk)) %>% 
+  group_by(ethnicity, gender, icd_code) %>% 
+  summarise(log_rel = mean(log_rel, na.rm = T)) %>% 
+  ungroup() %>% 
+  mutate(avg_rel = exp(log_rel)) %>% 
+  left_join(
+    dta_tidy %>% 
+      select(ethnicity, gender, icd_code, deaths, population) %>% 
+      group_by(ethnicity, gender, icd_code) %>% 
+      summarise(deaths = sum(deaths), population = sum(population)) %>% 
+      mutate(prevalence = deaths / population) %>% 
+      ungroup() %>% 
+      select(ethnicity, gender, icd_code, prevalence),
+    by = c("ethnicity", "gender", "icd_code")
+  ) %T>% print(.) %>% (
+    function(..) {
+      
+      
+      
+    }
+  )
+
+
+  hchart("scatter", hcaes(x = prevalence, color = ethnicity, y = avg_rel, group = icd_code))
+
+
+  ggplot(aes(x = prevalence, y = avg_rel, colour = ethnicity)) +
+  geom_text(aes(label = icd_code)) +
+  facet_wrap(~gender) +
+  scale_x_log10() + scale_y_log10()
